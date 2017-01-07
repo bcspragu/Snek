@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package snek;
+
+// The snek service definition.
+service Snek {
+  rpc Update(stream UpdateRequest) returns (stream UpdateResponse) {}
+}
+
+message Loc {
+  int32 x = 1;
+  int32 y = 2;
+}
+
+message UpdateRequest {
+  Loc new_head = 1;
+  Loc old_tail = 2;
+}
+
+message UpdateResponse {
+  int32 id = 1;
+  Loc new_head = 2;
+  Loc old_tail = 3;
+}
