@@ -32,7 +32,7 @@ var (
 )
 
 type Game struct {
-	snek          *Snake
+	snek          *Snek
 	food          Loc
 	nextDirs      []Direction
 	Width, Height int
@@ -40,7 +40,7 @@ type Game struct {
 
 func newGame(w, h int) *Game {
 	g := &Game{
-		snek:     newSnake(25),
+		snek:     newSnek(25),
 		nextDirs: []Direction{},
 		Width:    w,
 		Height:   h,
@@ -53,20 +53,20 @@ func (g *Game) newFood() {
 	g.food = Loc{X: rand.Intn(g.Width / 2), Y: rand.Intn(g.Height / 2)}
 }
 
-type Snake struct {
+type Snek struct {
 	body     []Loc // head is at body[len(body)-1]
 	dir      Direction
 	occupied map[Loc]struct{}
 }
 
-func newSnake(l int) *Snake {
+func newSnek(l int) *Snek {
 	b := make([]Loc, l)
 	o := make(map[Loc]struct{})
 	for i := 0; i < l; i++ {
 		b[i].X = i
 		o[b[i]] = struct{}{}
 	}
-	return &Snake{
+	return &Snek{
 		body:     b,
 		dir:      Right,
 		occupied: o,
@@ -78,7 +78,7 @@ type Loc struct {
 }
 
 // Returns whether or not we were successful
-func (s *Snake) addHead(l Loc) bool {
+func (s *Snek) addHead(l Loc) bool {
 	if _, ok := s.occupied[l]; ok {
 		// It's already occupied, fail it
 		return false
@@ -88,24 +88,24 @@ func (s *Snake) addHead(l Loc) bool {
 	return true
 }
 
-func (s *Snake) removeTail() {
+func (s *Snek) removeTail() {
 	delete(s.occupied, s.body[0])
 	s.body = s.body[1:]
 }
 
-func (s *Snake) tail() Loc {
+func (s *Snek) tail() Loc {
 	return s.body[0]
 }
 
-func (s *Snake) grow() {
+func (s *Snek) grow() {
 	s.body = append(s.body[0:1], s.body...)
 }
 
-func (s *Snake) head() Loc {
+func (s *Snek) head() Loc {
 	return s.body[len(s.body)-1]
 }
 
-func (s *Snake) nextHead() Loc {
+func (s *Snek) nextHead() Loc {
 	h := s.head()
 	return Loc{h.X + s.dir.X, h.Y + s.dir.Y}
 }
@@ -160,7 +160,7 @@ loop:
 		case <-t.C:
 			if !g.update() {
 				t.Stop()
-				g.clearSnake()
+				g.clearSnek()
 				break loop
 			}
 		}
@@ -171,7 +171,7 @@ func (g *Game) addDirection(d Direction) {
 	g.nextDirs = append(g.nextDirs, d)
 }
 
-func (g *Game) clearSnake() {
+func (g *Game) clearSnek() {
 	time.Sleep(time.Second)
 	for _, l := range g.snek.body {
 		termbox.SetCell(l.X*2, l.Y, ' ', termbox.ColorDefault, termbox.ColorDefault)
