@@ -12,6 +12,13 @@ message Loc {
   int32 y = 2;
 }
 
+enum PhoneType {
+  UP = 0;
+  DOWN = 1;
+  LEFT = 2;
+  RIGHT = 3;
+}
+
 message UpdateRequest {
   Loc new_head = 1;
   Loc old_tail = 2;

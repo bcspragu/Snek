@@ -13,6 +13,10 @@ import (
 	pb "github.com/bcspragu/Snek/proto"
 )
 
+type Loc struct {
+	X, Y int
+}
+
 type Direction struct {
 	X, Y int
 }
@@ -41,26 +45,46 @@ var (
 	}
 )
 
-type Game struct {
-	snek          *Snek
-	wrap          bool
-	food          Loc
-	onlineFunc    func(*pb.UpdateRequest) error
-	nextDirs      []Direction
-	colors        map[int32]termbox.Attribute
-	Width, Height int
+type bbox struct {
+	x, y, w, h int
 }
 
-func newGame(w, h int, wrap bool) *Game {
+func (b bbox) Left() int    { return b.x }
+func (b bbox) Right() int   { return b.x + b.w }
+func (b bbox) Top() int     { return b.y }
+func (b bbox) Bottom() int  { return b.y + b.h }
+func (b bbox) Width() int   { return b.w }
+func (b bbox) Height() int  { return b.h }
+func (b bbox) CenterX() int { return b.x + b.w/2 }
+func (b bbox) CenterY() int { return b.y + b.h/2 }
+
+type Game struct {
+	snek       *Snek
+	bbox       bbox
+	wrap       bool
+	suspend    bool
+	food       Loc
+	onlineFunc func(*pb.UpdateRequest) error
+	nextDirs   []Direction
+	colors     map[int32]termbox.Attribute
+}
+
+type Move struct {
+	X, Y      int
+	Direction Direction
+}
+
+func newGame(wrap bool) *Game {
+	bbox := calcBbox()
 	g := &Game{
-		snek:     newSnek(10),
+		snek:     newSnek(bbox.CenterX(), bbox.CenterY(), 10),
+		bbox:     bbox,
 		wrap:     wrap,
 		nextDirs: []Direction{},
 		colors:   make(map[int32]termbox.Attribute),
-		Width:    w,
-		Height:   h,
 	}
 	g.newFood()
+	g.drawBorder()
 	return g
 }
 
@@ -135,20 +159,23 @@ func (g *Game) clearSnek() {
 }
 
 func (g *Game) newFood() {
-	g.food = Loc{X: rand.Intn(g.Width / 2), Y: rand.Intn(g.Height / 2)}
+	g.food = Loc{X: g.bbox.Left()/2 + rand.Intn(g.bbox.Width()/2-1) + 1, Y: g.bbox.Top() + rand.Intn(g.bbox.Height()-1) + 1}
+	termbox.SetCell(g.food.X*2+1, g.food.Y, '◎', termbox.ColorWhite, termbox.ColorDefault)
 }
 
 type Snek struct {
-	body     []Loc // head is at body[len(body)-1]
-	dir      Direction
-	occupied map[Loc]struct{}
+	body        []Loc // head is at body[len(body)-1]
+	dir         Direction
+	moveHistory []Move
+	occupied    map[Loc]struct{}
 }
 
-func newSnek(l int) *Snek {
+func newSnek(x, y, l int) *Snek {
 	b := make([]Loc, l)
 	o := make(map[Loc]struct{})
 	for i := 0; i < l; i++ {
-		b[i].X = i
+		b[i].X = x / 2
+		b[i].Y = y
 		o[b[i]] = struct{}{}
 	}
 	return &Snek{
@@ -156,10 +183,6 @@ func newSnek(l int) *Snek {
 		dir:      Right,
 		occupied: o,
 	}
-}
-
-type Loc struct {
-	X, Y int
 }
 
 // Returns whether or not we were successful
@@ -195,21 +218,21 @@ func (g *Game) addHead() (Loc, bool) {
 	nh := Loc{h.X + g.snek.dir.X, h.Y + g.snek.dir.Y}
 
 	if g.wrap {
-		if nh.X < 0 {
-			nh.X = g.Width / 2
+		if nh.X <= g.bbox.Left()/2 {
+			nh.X = g.bbox.Right()/2 - 1
 		}
-		if nh.X > g.Width/2 {
-			nh.X = 0
+		if nh.X >= g.bbox.Right()/2 {
+			nh.X = g.bbox.Left()/2 + 1
 		}
-		if nh.Y < 0 {
-			nh.Y = g.Height
+		if nh.Y <= g.bbox.Top() {
+			nh.Y = g.bbox.Bottom() - 1
 		}
-		if nh.Y > g.Height {
-			nh.Y = 0
+		if nh.Y >= g.bbox.Bottom() {
+			nh.Y = g.bbox.Top() + 1
 		}
 	} else {
 		// We aren't wrapping, kill them if they go too far
-		if nh.X < 0 || nh.Y < 0 || nh.X >= g.Width/2 || nh.Y >= g.Height {
+		if nh.X <= g.bbox.Left()/2 || nh.Y <= g.bbox.Top() || nh.X >= g.bbox.Right()/2 || nh.Y >= g.bbox.Bottom() {
 			return nh, false
 		}
 	}
@@ -219,10 +242,46 @@ func (g *Game) addHead() (Loc, bool) {
 func (g *Game) updateDir() {
 	if len(g.nextDirs) > 0 {
 		g.snek.dir, g.nextDirs = g.nextDirs[0], g.nextDirs[1:]
+		h := g.snek.head()
+		g.snek.moveHistory = append(g.snek.moveHistory, Move{X: h.X, Y: h.Y, Direction: g.snek.dir})
+	}
+}
+
+func calcBbox() bbox {
+	tw, th := termbox.Size()
+	cx, cy := tw/2, th/2
+	lx, ty := cx-Width/2, cy-Height/2
+	return bbox{lx, ty, Width - 1, Height - 1}
+}
+
+// drawBorder draws a box of size w x h in the center of the screen
+func (g *Game) drawBorder() {
+	termbox.Clear(termbox.ColorDefault, termbox.ColorDefault)
+
+	l, r, t, b := g.bbox.Left(), g.bbox.Right(), g.bbox.Top(), g.bbox.Bottom()
+	// Draw the corners
+	termbox.SetCell(l, t, '┌', termbox.ColorWhite, termbox.ColorDefault)
+	termbox.SetCell(l, b, '└', termbox.ColorWhite, termbox.ColorDefault)
+	termbox.SetCell(r, t, '┐', termbox.ColorWhite, termbox.ColorDefault)
+	termbox.SetCell(r, b, '┘', termbox.ColorWhite, termbox.ColorDefault)
+
+	// Draw the top and bottom edges
+	for x := l + 1; x < r; x++ {
+		termbox.SetCell(x, t, '─', termbox.ColorWhite, termbox.ColorDefault)
+		termbox.SetCell(x, b, '─', termbox.ColorWhite, termbox.ColorDefault)
+	}
+
+	for y := t + 1; y < b; y++ {
+		termbox.SetCell(l, y, '│', termbox.ColorWhite, termbox.ColorDefault)
+		termbox.SetCell(r, y, '│', termbox.ColorWhite, termbox.ColorDefault)
 	}
 }
 
 func (g *Game) update() bool {
+	if g.suspend {
+		return true
+	}
+
 	g.updateDir()
 
 	h, ok := g.addHead()
@@ -239,8 +298,6 @@ func (g *Game) update() bool {
 		termbox.SetCell(g.food.X*2+1, g.food.Y, '█', termbox.ColorWhite, termbox.ColorDefault)
 		g.newFood()
 	}
-	// draw food
-	termbox.SetCell(g.food.X*2+1, g.food.Y, '◎', termbox.ColorWhite, termbox.ColorDefault)
 
 	t := g.snek.tail()
 	g.snek.removeTail()
@@ -257,4 +314,25 @@ func (g *Game) update() bool {
 
 	termbox.Flush()
 	return true
+}
+
+func (g *Game) pause() {
+	g.suspend = true
+}
+
+func (g *Game) unpause() {
+	g.fullRefresh()
+	g.suspend = false
+}
+
+func (g *Game) fullRefresh() {
+	g.bbox = calcBbox()
+	g.drawBorder()
+
+	for _, p := range g.snek.body {
+		termbox.SetCell(p.X*2, p.Y, '█', termbox.ColorWhite, termbox.ColorDefault)
+		termbox.SetCell(p.X*2+1, p.Y, '█', termbox.ColorWhite, termbox.ColorDefault)
+	}
+
+	termbox.SetCell(g.food.X*2+1, g.food.Y, '◎', termbox.ColorWhite, termbox.ColorDefault)
 }
